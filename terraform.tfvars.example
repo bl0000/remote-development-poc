@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and modify where necessary.
+
+location    = "uksouth"
+name_prefix = "sde-dev"
+vm_size     = "Standard_D2s_v4"
+
+# Entra user/group object ID that should be able to log in.
+# avd_user_object_id = "00000000-0000-0000-0000-000000000000"

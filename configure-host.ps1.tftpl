@@ -1,0 +1,53 @@
+$ErrorActionPreference = "Stop"
+
+# FSLogix
+
+$vhdLocation = "${vhd_location}"
+
+# Install FSLogix if missing
+$frx = "C:\Program Files\FSLogix\Apps\frx.exe"
+if (-not (Test-Path $frx)) {
+    $zip = "$env:TEMP\fslogix.zip"
+    Invoke-WebRequest -Uri "https://aka.ms/fslogix_download" -OutFile $zip -UseBasicParsing
+    $extractDir = "$env:TEMP\fslogix"
+    Expand-Archive -Path $zip -DestinationPath $extractDir -Force
+    Start-Process -FilePath "$extractDir\x64\Release\FSLogixAppsSetup.exe" -ArgumentList "/install /quiet /norestart" -Wait
+}
+
+# Profile container settings (MS recommended baselines)
+$profilesKey = "HKLM:\SOFTWARE\FSLogix\Profiles"
+New-Item -Path $profilesKey -Force | Out-Null
+New-ItemProperty -Path $profilesKey -Name "Enabled" -PropertyType DWord -Value 1 -Force | Out-Null
+New-ItemProperty -Path $profilesKey -Name "VHDLocations" -PropertyType MultiString -Value @($vhdLocation) -Force | Out-Null
+New-ItemProperty -Path $profilesKey -Name "VolumeType" -PropertyType String -Value "vhdx" -Force | Out-Null
+New-ItemProperty -Path $profilesKey -Name "SizeInMBs" -PropertyType DWord -Value 30000 -Force | Out-Null
+New-ItemProperty -Path $profilesKey -Name "DeleteLocalProfileWhenVHDShouldApply" -PropertyType DWord -Value 1 -Force | Out-Null
+New-ItemProperty -Path $profilesKey -Name "FlipFlopProfileDirectoryName" -PropertyType DWord -Value 1 -Force | Out-Null
+
+# Microsoft Entra Kerberos: this Entra-joined host needs a cloud Kerberos TGT to
+# authenticate to the AADKERB-enabled storage account, and FSLogix's roamed
+# Credential Manager keys must load from whichever profile is currently mounted
+# rather than being pinned to one VM.
+
+# MS Entra Kerberos - Entra-joined host(s) need cloud Kerberos TGT for auth
+# to the AADKERB-enabled Storage Account. FSLogix's roamed Credential Manager
+# keys must load from mounted profile (vs pinning to VM)
+$kerberosKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\Parameters"
+New-Item -Path $kerberosKey -Force | Out-Null
+New-ItemProperty -Path $kerberosKey -Name "CloudKerberosTicketRetrievalEnabled" -PropertyType DWord -Value 1 -Force | Out-Null
+
+$azureAdAccountKey = "HKLM:\Software\Policies\Microsoft\AzureADAccount"
+New-Item -Path $azureAdAccountKey -Force | Out-Null
+New-ItemProperty -Path $azureAdAccountKey -Name "LoadCredKeyFromProfile" -PropertyType DWord -Value 1 -Force | Out-Null
+
+# Install example dev tools
+# Uses Chocolatey as winget doesn't reliably run under the SYSTEM
+$chocoExe = "$env:ProgramData\chocolatey\bin\choco.exe"
+
+if (-not (Test-Path $chocoExe)) {
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+}
+
+& $chocoExe install git vscode python -y --no-progress
